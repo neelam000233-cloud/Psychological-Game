@@ -1,75 +1,119 @@
 using UnityEngine;
 using UnityEngine.UI;
-using TMPro;
 
 public class HUDStatusController : MonoBehaviour
 {
-    [Header("Player A (Player) HUD UI Elements")]
-    [SerializeField] private Slider playerSanitySlider;
-    [SerializeField] private Slider playerHeatSlider;
-    [SerializeField] private TextMeshProUGUI playerSanityText;
-    [SerializeField] private TextMeshProUGUI playerHeatText;
+    [System.Serializable]
+    public class HUDGroup
+    {
+        public Slider sanitySlider;
+        public Image sanityFillImage;
+        public Image sanityBackgroundImage;
 
-    [Header("Player B (Target/AI) HUD UI Elements")]
-    [SerializeField] private Slider targetSanitySlider;
-    [SerializeField] private Slider targetHeatSlider;
-    [SerializeField] private TextMeshProUGUI targetSanityText;
-    [SerializeField] private TextMeshProUGUI targetHeatText;
+        public Slider heatSlider;
+        public Image heatFillImage;
+        public Image heatBackgroundImage;
+
+        [HideInInspector] public float targetSanity = 100f;
+        [HideInInspector] public float targetHeat = 0f;
+    }
+
+    [Header("UI Groups")]
+    public HUDGroup playerHUD;
+    public HUDGroup targetHUD;
 
     [Header("Settings")]
-    [SerializeField] private float lerpSpeed = 5f; // Slider 平滑过渡速度
+    public float lerpSpeed = 5f;
 
-    private float targetPlayerSanity;
-    private float targetPlayerHeat;
-    private float targetTargetSanity;
-    private float targetTargetHeat;
+    [Header("Color Thresholds")]
+    public Color colorDanger = Color.red;                         // 危险色 (SAN<30 或 HEAT>70)
+    public Color colorWarning = new Color(1f, 0.8f, 0.2f);        // 预警黄色 (30 - 70)
+    public Color colorSafe = new Color(0.2f, 0.8f, 0.2f);          // 安全绿色 (SAN>70 或 HEAT<30)
+    public Color colorRightBackground = new Color(0.3f, 0.3f, 0.3f, 0.5f); // 右侧底色灰色
 
     private void OnEnable()
     {
-        // 订阅数值变更事件
         GameEventManager.OnEmployeeStatsChanged += HandleStatsChanged;
     }
 
     private void OnDisable()
     {
-        // 解绑事件
         GameEventManager.OnEmployeeStatsChanged -= HandleStatsChanged;
+    }
+
+    private void Start()
+    {
+        SetBackgroundColor(playerHUD);
+        SetBackgroundColor(targetHUD);
     }
 
     private void Update()
     {
-        // 平滑更新 Slider 动画
-        if (playerSanitySlider != null)
-            playerSanitySlider.value = Mathf.Lerp(playerSanitySlider.value, targetPlayerSanity, Time.unscaledDeltaTime * lerpSpeed);
-
-        if (playerHeatSlider != null)
-            playerHeatSlider.value = Mathf.Lerp(playerHeatSlider.value, targetPlayerHeat, Time.unscaledDeltaTime * lerpSpeed);
-
-        if (targetSanitySlider != null)
-            targetSanitySlider.value = Mathf.Lerp(targetSanitySlider.value, targetTargetSanity, Time.unscaledDeltaTime * lerpSpeed);
-
-        if (targetHeatSlider != null)
-            targetHeatSlider.value = Mathf.Lerp(targetHeatSlider.value, targetTargetHeat, Time.unscaledDeltaTime * lerpSpeed);
+        UpdateHUDGroup(playerHUD);
+        UpdateHUDGroup(targetHUD);
     }
 
-    private void HandleStatsChanged(int characterID, float currentSanity, float currentHeat)
-{
-    // 根据 characterID 判断是玩家（例如 0）还是目标对手（例如 1）
-    if (characterID == 0) // 玩家
+    private void HandleStatsChanged(int characterID, float sanity, float heat)
     {
-        targetPlayerSanity = currentSanity;
-        targetPlayerHeat = currentHeat;
+        if (characterID == 0)
+        {
+            playerHUD.targetSanity = sanity;
+            playerHUD.targetHeat = heat;
+        }
+        else if (characterID == 1)
+        {
+            targetHUD.targetSanity = sanity;
+            targetHUD.targetHeat = heat;
+        }
 
-        if (playerSanityText != null) playerSanityText.text = $"SAN: {Mathf.RoundToInt(currentSanity)}";
-        if (playerHeatText != null) playerHeatText.text = $"HEAT: {Mathf.RoundToInt(currentHeat)}";
+        Debug.Log($"[Stats Status] 玩家 SAN: {playerHUD.targetSanity} | HEAT: {playerHUD.targetHeat} <===> 对手 SAN: {targetHUD.targetSanity} | HEAT: {targetHUD.targetHeat}");
     }
-    else // 目标对手
+
+    private void UpdateHUDGroup(HUDGroup group)
     {
-        targetTargetSanity = currentSanity;
-        targetTargetHeat = currentHeat;
+        // 1. 更新 SAN Slider (SAN 低于 30 变红)
+        if (group.sanitySlider != null)
+        {
+            group.sanitySlider.value = Mathf.Lerp(group.sanitySlider.value, group.targetSanity, Time.deltaTime * lerpSpeed);
+            UpdateFillColor(group.sanityFillImage, group.sanitySlider.value, isHeat: false);
+        }
 
-        if (targetSanityText != null) targetSanityText.text = $"SAN: {Mathf.RoundToInt(currentSanity)}";
-        if (targetHeatText != null) targetHeatText.text = $"HEAT: {Mathf.RoundToInt(currentHeat)}";
+        // 2. 更新 HEAT Slider (HEAT 高于 70 变红)
+        if (group.heatSlider != null)
+        {
+            group.heatSlider.value = Mathf.Lerp(group.heatSlider.value, group.targetHeat, Time.deltaTime * lerpSpeed);
+            UpdateFillColor(group.heatFillImage, group.heatSlider.value, isHeat: true);
+        }
     }
-}
+
+    private void UpdateFillColor(Image fillImage, float currentVal, bool isHeat)
+    {
+        if (fillImage == null) return;
+
+        if (!isHeat)
+        {
+            // SAN 逻辑：低数值危险 (<30 变红, 30-70 变黄, >70 变绿)
+            if (currentVal < 30f) fillImage.color = colorDanger;
+            else if (currentVal <= 70f) fillImage.color = colorWarning;
+            else fillImage.color = colorSafe;
+        }
+        else
+        {
+            // HEAT 逻辑：高数值危险 (<30 变绿, 30-70 变黄, >70 变红)
+            if (currentVal < 30f) fillImage.color = colorSafe;
+            else if (currentVal <= 70f) fillImage.color = colorWarning;
+            else fillImage.color = colorDanger;
+        }
+    }
+
+    private void SetBackgroundColor(HUDGroup group)
+    {
+        if (group == null) return;
+
+        if (group.sanityBackgroundImage != null)
+            group.sanityBackgroundImage.color = colorRightBackground;
+
+        if (group.heatBackgroundImage != null)
+            group.heatBackgroundImage.color = colorRightBackground;
+    }
 }
