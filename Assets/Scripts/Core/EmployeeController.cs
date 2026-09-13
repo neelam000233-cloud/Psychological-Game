@@ -5,6 +5,10 @@ public class EmployeeController : MonoBehaviour
     [Header("Data Source")]
     public EmployeeStateSO stateData;
 
+    // 快捷属性暴露，供 StateTester 或 UI 快速访问
+    public float currentHeat => stateData != null ? stateData.currentHeat : 0f;
+    public float currentSanity => stateData != null ? stateData.currentSanity : 0f;
+
     private void Start()
     {
         if (stateData != null)

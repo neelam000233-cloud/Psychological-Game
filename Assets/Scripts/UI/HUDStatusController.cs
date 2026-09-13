@@ -31,6 +31,10 @@ public class HUDStatusController : MonoBehaviour
     public Color colorSafe = new Color(0.2f, 0.8f, 0.2f);          // 安全绿色 (SAN>70 或 HEAT<30)
     public Color colorRightBackground = new Color(0.3f, 0.3f, 0.3f, 0.5f); // 右侧底色灰色
 
+    [Header("Heartbeat UI Settings")]
+    public float pulseSpeed = 8f;         // 心跳频率
+    public float pulseScaleAmount = 0.05f; // 心跳放幅
+
     private void OnEnable()
     {
         GameEventManager.OnEmployeeStatsChanged += HandleStatsChanged;
@@ -71,18 +75,30 @@ public class HUDStatusController : MonoBehaviour
 
     private void UpdateHUDGroup(HUDGroup group)
     {
-        // 1. 更新 SAN Slider (SAN 低于 30 变红)
+        // 1. 更新 SAN Slider
         if (group.sanitySlider != null)
         {
             group.sanitySlider.value = Mathf.Lerp(group.sanitySlider.value, group.targetSanity, Time.deltaTime * lerpSpeed);
             UpdateFillColor(group.sanityFillImage, group.sanitySlider.value, isHeat: false);
         }
 
-        // 2. 更新 HEAT Slider (HEAT 高于 70 变红)
+        // 2. 更新 HEAT Slider
         if (group.heatSlider != null)
         {
             group.heatSlider.value = Mathf.Lerp(group.heatSlider.value, group.targetHeat, Time.deltaTime * lerpSpeed);
             UpdateFillColor(group.heatFillImage, group.heatSlider.value, isHeat: true);
+        }
+
+        // 3. 心跳 UI 脉动：当 SAN < 30 或 HEAT > 70 时，对应 HUD 产生缩放脉冲
+        bool isDanger = group.targetSanity < 30f || group.targetHeat > 70f;
+        if (isDanger && group.sanitySlider != null)
+        {
+            float scale = 1f + Mathf.Sin(Time.time * pulseSpeed) * pulseScaleAmount;
+            group.sanitySlider.transform.parent.localScale = new Vector3(scale, scale, 1f);
+        }
+        else if (group.sanitySlider != null)
+        {
+            group.sanitySlider.transform.parent.localScale = Vector3.Lerp(group.sanitySlider.transform.parent.localScale, Vector3.one, Time.deltaTime * 5f);
         }
     }
 
