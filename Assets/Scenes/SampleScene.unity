@@ -1772,6 +1772,15 @@ MonoBehaviour:
   overlayPanel: {fileID: 1698885105}
   resultText: {fileID: 2094649957}
   restartButton: {fileID: 148995758}
+  titleText: {fileID: 2094649957}
+  backgroundImage: {fileID: 1698885107}
+  winColor: {r: 0.2, g: 0.8, b: 0.4, a: 0.9}
+  lossColor: {r: 0.8, g: 0.2, b: 0.2, a: 0.9}
+  mutualLossColor: {r: 0.3, g: 0.1, b: 0.1, a: 0.95}
+  mutualWinColor: {r: 0.2, g: 0.6, b: 0.9, a: 0.9}
+  drawColor: {r: 0.7, g: 0.7, b: 0.2, a: 0.9}
+  fadeDuration: 0.4
+  startScale: {x: 0.85, y: 0.85, z: 1}
 --- !u!1 &992819222
 GameObject:
   m_ObjectHideFlags: 0

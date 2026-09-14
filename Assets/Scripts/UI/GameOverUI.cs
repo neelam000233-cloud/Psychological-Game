@@ -1,69 +1,178 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.SceneManagement;
-using TMPro; // 如果使用的是 Legacy Text，请改为 using UnityEngine.UI; 并将 TMP_Text 改为 Text
+using TMPro;
 
 public class GameOverUI : MonoBehaviour
 {
     [Header("UI 控件槽位")]
     public GameObject overlayPanel; 
-    public TMP_Text resultText;     // 若用 Legacy Text，请改为 public Text resultText;
-    public Button restartButton;     
+    public TMP_Text resultText;     
+    public Button restartButton;    
+
+    [Header("结局视觉控件 (拖入对应组件以更改颜色)")]
+    public TMP_Text titleText;               // 结局标题文本 (若为空，代码会自动尝试从子物体抓取)
+    public Image backgroundImage;            // 结局背景图片 (若为空，代码会自动尝试从 overlayPanel 抓取)
+
+    [Header("结局颜色自定义 (可在 Inspector 中直接调整)")]
+    public Color winColor = new Color(0.2f, 0.8f, 0.4f, 0.9f);        // PlayerWin (绿)
+    public Color lossColor = new Color(0.8f, 0.2f, 0.2f, 0.9f);       // OpponentWin (红)
+    public Color mutualLossColor = new Color(0.4f, 0.1f, 0.1f, 0.95f); // MutualLoss (暗红)
+    public Color mutualWinColor = new Color(0.2f, 0.6f, 0.9f, 0.9f);   // MutualWin (蓝)
+    public Color drawColor = new Color(0.8f, 0.8f, 0.2f, 0.9f);        // TimeoutDraw (黄)
+
+    [Header("动画配置")]
+    public float fadeDuration = 0.6f;
+    public Vector3 startScale = new Vector3(0.85f, 0.85f, 1f);
+
+    private CanvasGroup canvasGroup;
 
     private void Awake()
     {
-        // 游戏启动时强制隐藏面板
-        if (overlayPanel != null)
+        if (overlayPanel == null)
         {
-            overlayPanel.SetActive(false);
+            overlayPanel = gameObject;
         }
+
+        // 自动补充组件引用，防止 Inspector 忘记拖拽
+        if (backgroundImage == null)
+        {
+            backgroundImage = overlayPanel.GetComponent<Image>();
+        }
+
+        if (titleText == null)
+        {
+            titleText = overlayPanel.GetComponentInChildren<TMP_Text>();
+        }
+
+        canvasGroup = overlayPanel.GetComponent<CanvasGroup>();
+        if (canvasGroup == null)
+        {
+            canvasGroup = overlayPanel.AddComponent<CanvasGroup>();
+        }
+
+        // 初始化隐形
+        overlayPanel.SetActive(true);
+        canvasGroup.alpha = 0f;
+        canvasGroup.interactable = false;
+        canvasGroup.blocksRaycasts = false;
+        overlayPanel.transform.localScale = startScale;
     }
 
     private void Start()
     {
-        // 绑定按钮事件
         if (restartButton != null)
         {
             restartButton.onClick.RemoveAllListeners();
             restartButton.onClick.AddListener(RestartGame);
         }
 
-        // 双重保险：在 Start 中确保订阅静态事件
-        GameManager.OnGameOverWithEnding -= ShowResult; // 先解绑防止重复订阅
+        GameManager.OnGameOverWithEnding -= ShowResult;
         GameManager.OnGameOverWithEnding += ShowResult;
     }
 
     private void OnDestroy()
     {
-        // 销毁时解绑
         GameManager.OnGameOverWithEnding -= ShowResult;
     }
 
     public void ShowResult(EndingType ending, string reason)
     {
-        Debug.Log($"<color=green>[GameOverUI] 收到结局通知，正在展示 UI！结局类型: {ending}</color>");
+        if (overlayPanel == null) return;
 
-        if (overlayPanel == null)
-        {
-            Debug.LogError("[GameOverUI] overlayPanel 槽位未赋值！请在 Inspector 中拖入 GameOverOverlay 物体。");
-            return;
-        }
-
-        // 显现结算面板
-        overlayPanel.SetActive(true);
-
-        // 确保面板被置于 UI 最顶层，防止被其他 Canvas/Panel 遮挡
         overlayPanel.transform.SetAsLastSibling();
 
+        SetupEndingTheme(ending, reason);
+
+        StopAllCoroutines();
+        StartCoroutine(Co_AnimateFadeIn());
+    }
+
+    private void SetupEndingTheme(EndingType ending, string reason)
+    {
         if (resultText != null)
         {
             resultText.text = reason;
         }
+
+        Color themeColor = Color.white;
+        string titleStr = "GAME OVER";
+
+        switch (ending)
+        {
+            case EndingType.PlayerWin:
+                titleStr = "VICTORY";
+                themeColor = winColor;
+                break;
+
+            case EndingType.OpponentWin:
+                titleStr = "DEFEAT";
+                themeColor = lossColor;
+                break;
+
+            case EndingType.MutualLoss:
+                titleStr = "MUTUAL COLLAPSE";
+                themeColor = mutualLossColor;
+                break;
+
+            case EndingType.MutualWin:
+                titleStr = "PERFECT HARMONY";
+                themeColor = mutualWinColor;
+                break;
+
+            case EndingType.TimeoutDraw:
+                titleStr = "TIME OUT - DRAW";
+                themeColor = drawColor;
+                break;
+
+            case EndingType.None:
+            default:
+                titleStr = "GAME OVER";
+                themeColor = Color.gray;
+                break;
+        }
+
+        // 强行更新标题文字与颜色
+        if (titleText != null)
+        {
+            titleText.text = titleStr;
+            titleText.color = themeColor;
+        }
+
+        // 强行更新背景颜色
+        if (backgroundImage != null)
+        {
+            backgroundImage.color = themeColor;
+        }
+    }
+
+    private IEnumerator Co_AnimateFadeIn()
+    {
+        canvasGroup.interactable = true;
+        canvasGroup.blocksRaycasts = true;
+
+        float timer = 0f;
+        while (timer < fadeDuration)
+        {
+            timer += Time.unscaledDeltaTime;
+            float progress = Mathf.Clamp01(timer / fadeDuration);
+
+            canvasGroup.alpha = Mathf.Lerp(0f, 1f, progress);
+
+            float smoothProgress = Mathf.Sin(progress * Mathf.PI * 0.5f);
+            overlayPanel.transform.localScale = Vector3.Lerp(startScale, Vector3.one, smoothProgress);
+
+            yield return null;
+        }
+
+        canvasGroup.alpha = 1f;
+        overlayPanel.transform.localScale = Vector3.one;
     }
 
     public void RestartGame()
     {
-        Time.timeScale = 1.0f; // 恢复时间流速
+        Time.timeScale = 1.0f;
 
         if (GameManager.Instance != null)
         {
