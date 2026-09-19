@@ -1577,7 +1577,9 @@ MonoBehaviour:
   holdThreshold: 0.3
   repeatInterval: 2
   attackCooldown: 0.5
+  parryWindowDuration: 0.4
   aiDecisionInterval: 1.5
+  aiDefenseProbability: 0.85
   defenseSelfStats: {x: -2, y: -5}
   attackSelfStats: {x: -2, y: 8}
   attackTargetStats: {x: -20, y: 5}
@@ -1620,6 +1622,10 @@ MonoBehaviour:
   ignoreClickThisFrame: 0
   minGameDuration: 10
   maxMatchTime: 180
+  parrySpeedMultiplierPerChain: 0.2
+  maxParrySpeedMultiplier: 2.5
+  parryDamageMultiplierPerChain: 0.25
+  mainCamera: {fileID: 0}
   gameTimer: 0
 --- !u!114 &736567061
 MonoBehaviour:
@@ -3007,7 +3013,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 1, y: 1}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: -29.48999, y: -43.06}
+  m_AnchoredPosition: {x: -29.489746, y: -43.059998}
   m_SizeDelta: {x: 300, y: 100}
   m_Pivot: {x: 1, y: 1}
 --- !u!222 &1297937627
@@ -3628,7 +3634,8 @@ MonoBehaviour:
   heatPerSecondWhileHolding: 2.5
   playerADeskPoint: {fileID: 1618729575}
   playerBDeskPoint: {fileID: 1833764812}
-  passAnimationSpeed: 8
+  passAnimationSpeed: 0.35
+  passProtectionDuration: 0.35
 --- !u!1 &1618729574
 GameObject:
   m_ObjectHideFlags: 0
