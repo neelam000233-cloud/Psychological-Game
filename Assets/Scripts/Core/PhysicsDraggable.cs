@@ -43,7 +43,7 @@ public class PhysicsDraggable : MonoBehaviour
 
     private void Update()
     {
-        // 需求 1：时间暂停时，镜头微调跟随冻结在当前位置
+        // 时间暂停时，镜头微调跟随冻结在当前位置
         if (GameManager.Instance != null && GameManager.Instance.isTimePaused) return;
 
         if (isDragging && mainCamera != null)
@@ -53,46 +53,68 @@ public class PhysicsDraggable : MonoBehaviour
     }
 
     private void OnMouseDown()
-    {
-        // 需求 2：如果是用来解除时间暂停的那一下点击，直接忽略，不影响物体的操控模式
-        if (GameManager.Instance != null && (GameManager.Instance.isTimePaused || GameManager.Instance.ignoreClickThisFrame))
-        {
-            return;
-        }
+{
+    // 游戏结束时禁止继续拖拽
+    if (GameManager.Instance != null && GameManager.Instance.isGameOver) return;
 
-        if (!isDragging) StartDragging();
-        else StopDragging();
+    // 拦截 UI / 误触
+    if (GameManager.Instance != null && GameManager.Instance.ignoreClickThisFrame)
+    {
+        return;
     }
+
+    if (!isDragging) 
+    {
+        StartDragging();
+    }
+    else 
+    {
+        StopDragging();
+    }
+}
 
     private void StartDragging()
+{
+    isDragging = true;
+    rb.useGravity = false;
+    rb.linearVelocity = Vector3.zero;
+    rb.angularVelocity = Vector3.zero;
+    mZCoord = mainCamera.WorldToScreenPoint(transform.position).z;
+    initialMousePos = Input.mousePosition;
+
+    // 拿起物件：恢复倒计时流动
+    if (GameManager.Instance != null)
     {
-        isDragging = true;
-        rb.useGravity = false;
+        GameManager.Instance.SetTimePause(false);
+    }
+}
+
+public void StopDragging()
+{
+    
+    isDragging = false;
+    rb.useGravity = true;
+    rb.linearDamping = 0f;
+
+    if (autoResetPosition)
+    {
         rb.linearVelocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
-        mZCoord = mainCamera.WorldToScreenPoint(transform.position).z;
-        initialMousePos = Input.mousePosition;
+        transform.position = initialTransformPos;
+        transform.rotation = initialTransformRot;
     }
 
-    private void StopDragging()
+    if (mainCamera != null)
     {
-        isDragging = false;
-        rb.useGravity = true;
-        rb.linearDamping = 0f;
-
-        if (autoResetPosition)
-        {
-            rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
-            transform.position = initialTransformPos;
-            transform.rotation = initialTransformRot;
-        }
-
-        if (mainCamera != null)
-        {
-            mainCamera.transform.position = originalCamPos;
-        }
+        mainCamera.transform.position = originalCamPos;
     }
+
+    // 放下物件：暂停倒计时流动
+    if (GameManager.Instance != null)
+    {
+        GameManager.Instance.SetTimePause(true);
+    }
+}
 
     private void FixedUpdate()
     {
