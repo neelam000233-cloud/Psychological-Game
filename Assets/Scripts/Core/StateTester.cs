@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 
 public class StateTester : MonoBehaviour
@@ -5,6 +6,7 @@ public class StateTester : MonoBehaviour
     [Header("Controllers")]
     public EmployeeController employeeA;
     public EmployeeController employeeB;
+    public ExpressionController expressionA;
     public ExpressionController expressionB;
 
     [Header("Document Link (甩鍋核心引用)")]
@@ -17,13 +19,23 @@ public class StateTester : MonoBehaviour
 
     [Header("Parry Mechanism Settings")]
     [Tooltip("按下防守後的完美格檔時間視窗 (秒)，超過此時間長按防守則無法觸發 Parry")]
-    public float parryWindowDuration = 0.4f;
+    public float parryWindowDuration = 1f;
+
+    [Header("Bluff Mechanism Settings")]
+    [Tooltip("假動作冷卻時間 (秒)")]
+    public float bluffCooldown = 1.2f;
+    [Tooltip("身體假動作前傾距離")]
+    public float bluffBodyMoveDistance = 0.6f;
+    private float lastBluffTimeA = -999f;
+    private float lastBluffTimeB = -999f;
 
     [Header("AI Settings (PvE)")]
     [Tooltip("AI 決策間隔 (秒)，越小反應越快")]
-    public float aiDecisionInterval = 0.8f; // 原 2.5f -> 縮短至 0.8f，大幅提升反應速度
+    public float aiDecisionInterval = 0.8f; 
     [Tooltip("當玩家持球時，AI 預判/防守的基礎機率 (0.0~1.0)")]
-    public float aiDefenseProbability = 0.85f; // 原 0.8 -> 提高防守意願
+    public float aiDefenseProbability = 0.85f; 
+    [Tooltip("當 AI 持球時，發動假動作誘騙玩家的機率 (0.0~1.0)")]
+    public float aiBluffProbability = 0.25f;
     private float nextAiDecisionTime;
 
     [Header("=== 統一數值配置 ===")]
@@ -57,6 +69,16 @@ public class StateTester : MonoBehaviour
     private float bNextAttackTime;
     private int bRecentAttackCount = 0;
     private float bLastAttackTime;
+
+    private void OnEnable()
+    {
+        GameEventManager.OnBluff += OnBluffTriggered;
+    }
+
+    private void OnDisable()
+    {
+        GameEventManager.OnBluff -= OnBluffTriggered;
+    }
 
     private void Start()
     {
@@ -95,10 +117,34 @@ public class StateTester : MonoBehaviour
         }
         else
         {
-            HandleHighDefensiveAI(); // 優化後的 AI 邏輯
+            HandleHighDefensiveAI();
         }
         
+        UpdateDefenseExpressions();
         DecayAttackCounts();
+    }
+
+    private void OnBluffTriggered(int attackerID)
+    {
+        bool isPvP = GameManager.Instance != null && GameManager.Instance.currentMode == GameMode.PvP_Local;
+
+        // 若在 PvE 模式下，甲方 (0) 發動假動作，讓乙方 AI (1) 有 70% 機率被騙而做出誤防姿態
+        if (!isPvP && attackerID == 0)
+        {
+            if (Random.value < 0.70f)
+            {
+                isHoldingB = true;
+                bDefensePressTime = Time.time;
+                ExecuteDefense(employeeB);
+
+                if (expressionB != null)
+                {
+                    expressionB.TriggerExpression(ExpressionState.Nervous, 1.2f);
+                }
+
+                Debug.Log("<color=red>[乙方 AI 誤防]</color> 被甲方的假動作騙到了，交出了防禦！");
+            }
+        }
     }
 
     private void DecayAttackCounts()
@@ -114,7 +160,6 @@ public class StateTester : MonoBehaviour
 
         self.ModifyStats(defenseSelfStats.x, defenseSelfStats.y);
         GameEventManager.TriggerDefenseExecuted(id);
-        Debug.Log($"<color=cyan>[防守成功]</color> {self.name} 降低 HEAT，消耗 SAN。");
     }
 
     private void ExecutePassDocumentAttack(EmployeeController self, EmployeeController target, ExpressionController targetExpression = null)
@@ -122,8 +167,8 @@ public class StateTester : MonoBehaviour
         bool isPlayerA = (self == employeeA);
         int attackerID = isPlayerA ? 0 : 1;
         int defenderID = isPlayerA ? 1 : 0;
+        ExpressionController attackerExpression = isPlayerA ? expressionA : expressionB;
 
-        // 1. 檢查甩鍋條件與文件狀態
         if (targetDocument != null)
         {
             DocumentOwner requiredOwner = isPlayerA ? DocumentOwner.PlayerA : DocumentOwner.PlayerB;
@@ -142,45 +187,40 @@ public class StateTester : MonoBehaviour
             }
         }
 
+        // ✅ 新增：成功發動真實甩鍋時，發起方角色身體也做朝向對手的前傾動作
+        if (self != null)
+        {
+            PlayCharacterBluffBodyAnimation(self.transform, isPlayerA);
+        }
+
         GameManager.Instance?.RegisterAction(attackerID);
 
-        // ==================== 【需求 2：優先結算主動甩鍋方的 SAN 值扣減】 ====================
         float finalSelfSanDmg = attackSelfStats.x;
         float finalSelfHeatGain = attackSelfStats.y;
         if (self.currentHeat > highHeatThreshold)
         {
-            finalSelfSanDmg *= heatPenaltyMultiplier; // 高壓下消耗翻倍
+            finalSelfSanDmg *= heatPenaltyMultiplier;
         }
 
-        // 立即扣除主動方的代價 (SAN & HEAT)
         self.ModifyStats(finalSelfSanDmg, finalSelfHeatGain);
-        Debug.Log($"<color=orange>[甩鍋發動代價]</color> {self.name} 優先扣除代價 SAN: {finalSelfSanDmg}, HEAT: +{finalSelfHeatGain}");
 
-        // 如果主動方因為這下甩鍋直接爆掉 (SAN<=0 或 HEAT>=100)，GameManager 會在 ModifyStats 內直接判輸，此處可安全繼續向下執行判定
-
-        // 2. 判斷防守方是否成功 Parry
         bool targetIsDefending = isPlayerA ? isHoldingB : isHoldingSpace;
         float defenderPressTime = isPlayerA ? bDefensePressTime : aDefensePressTime;
         bool isParryWindowValid = targetIsDefending && ((Time.time - defenderPressTime) <= parryWindowDuration);
 
         if (isParryWindowValid)
         {
-            // ==================== 【Parry 完美格檔成功】 ====================
-            GameManager.Instance?.IncrementParryChain(); // 連擊數 +1
+            // Parry 完美格檔
+            GameManager.Instance?.IncrementParryChain();
 
             float speedMult = GameManager.Instance != null ? GameManager.Instance.GetParrySpeedMultiplier() : 1.0f;
             float dmgMult = GameManager.Instance != null ? GameManager.Instance.GetParryDamageMultiplier() : 1.0f;
 
-            Debug.Log($"<color=yellow>[Parry 完美格檔！]</color> 連擊：{GameManager.Instance?.currentParryChain} | 速度倍率：{speedMult:F2}x");
-
-            // 額外套用 Parry 懲罰 (主動方再受罰，防守方得獎勵)
             self.ModifyStats(parryAttackerPenalty.x * dmgMult, parryAttackerPenalty.y * dmgMult);
             target.ModifyStats(parryDefenderReward.x, parryDefenderReward.y);
 
-            // 觸發打擊反饋（頓幀 + 鏡頭震動）
             GameManager.Instance?.TriggerHitstopAndShake(0.08f, 0.2f, 0.18f);
 
-            // 甩回給攻擊者 (將連擊的速度加成帶入動畫)
             if (targetDocument != null)
             {
                 float baseSpeed = targetDocument.passAnimationSpeed;
@@ -189,23 +229,19 @@ public class StateTester : MonoBehaviour
                 if (isPlayerA) targetDocument.PassDocumentToPlayerA();
                 else targetDocument.PassDocumentToOpponent();
 
-                targetDocument.passAnimationSpeed = baseSpeed; // 恢復基礎速度
+                targetDocument.passAnimationSpeed = baseSpeed;
             }
 
             GameEventManager.TriggerParry(defenderID, attackerID);
             GameEventManager.TriggerDocumentPassAttempt(attackerID, false);
 
-            if (targetExpression != null)
-            {
-                targetExpression.TriggerExpression(ExpressionState.Default, 1.5f);
-            }
+            if (targetExpression != null) targetExpression.TriggerExpression(ExpressionState.Aggressive, 1.5f);
+            if (attackerExpression != null) attackerExpression.TriggerExpression(ExpressionState.Nervous, 1.5f);
         }
         else
         {
-            // ==================== 【普通甩鍋命中】 ====================
-            GameManager.Instance?.ResetParryChain(); // 重置連擊
-
-            Debug.Log($"<color=green>[甩鍋成功！]</color> {self.name} 成功把文件甩給了 {target.name}！");
+            // 普通甩鍋命中
+            GameManager.Instance?.ResetParryChain();
 
             if (targetDocument != null)
             {
@@ -213,12 +249,10 @@ public class StateTester : MonoBehaviour
                 else targetDocument.PassDocumentToPlayerA();
             }
 
-            // 結算被甩鍋目標（防守方）的傷害
             float finalTargetSanDmg = attackTargetStats.x;
             if (targetIsDefending)
             {
-                finalTargetSanDmg *= 0.7f; // 普通防守減傷 30%
-                Debug.Log($"<color=cyan>[龜縮防守]</color> {target.name} 長按防守抵擋了部分甩鍋傷害！");
+                finalTargetSanDmg *= 0.7f;
             }
 
             int recentAttacks = isPlayerA ? aRecentAttackCount : bRecentAttackCount;
@@ -232,10 +266,8 @@ public class StateTester : MonoBehaviour
 
             GameEventManager.TriggerDocumentPassAttempt(attackerID, true);
 
-            if (targetExpression != null)
-            {
-                targetExpression.TriggerExpression(ExpressionState.Nervous, 2f);
-            }
+            if (attackerExpression != null) attackerExpression.TriggerExpression(ExpressionState.Confident, 1.2f);
+            if (targetExpression != null) targetExpression.TriggerExpression(ExpressionState.Nervous, 2.0f);
         }
 
         if (isPlayerA)
@@ -250,10 +282,76 @@ public class StateTester : MonoBehaviour
         }
     }
 
+    private void UpdateDefenseExpressions()
+    {
+        bool isPlayerAHoldingDocument = (targetDocument != null && targetDocument.currentOwner == DocumentOwner.PlayerA);
+
+        if (!isPlayerAHoldingDocument && Input.GetKey(KeyCode.Space))
+        {
+            float pressDuration = Time.time - aDefensePressTime;
+
+            if (pressDuration <= parryWindowDuration)
+            {
+                GameEventManager.TriggerDefenseStateReported(0, "Parry");
+            }
+            else
+            {
+                GameEventManager.TriggerDefenseStateReported(0, "Normal");
+            }
+        }
+        else if (Input.GetKeyUp(KeyCode.Space))
+        {
+            GameEventManager.TriggerDefenseStateReported(0, "End");
+        }
+
+        bool isPlayerBHoldingDocument = (targetDocument != null && targetDocument.currentOwner == DocumentOwner.PlayerB);
+
+        if (!isPlayerBHoldingDocument && isHoldingB)
+        {
+            float pressDuration = Time.time - bDefensePressTime;
+
+            if (pressDuration <= parryWindowDuration)
+            {
+                GameEventManager.TriggerDefenseStateReported(1, "Parry");
+            }
+            else
+            {
+                GameEventManager.TriggerDefenseStateReported(1, "Normal");
+            }
+        }
+    }
+
     private void HandlePlayerAInput()
     {
         bool isPlayerAHoldingDocument = (targetDocument != null && targetDocument.currentOwner == DocumentOwner.PlayerA);
 
+        // ===== Player A (甲方) F 鍵假動作 =====
+        if (Input.GetKeyDown(KeyCode.F))
+        {
+            if (Time.time - lastBluffTimeA >= bluffCooldown)
+            {
+                lastBluffTimeA = Time.time;
+                
+                GameEventManager.TriggerBluff(0);
+
+                if (expressionA != null)
+                {
+                    expressionA.TriggerExpression(ExpressionState.Aggressive, 0.8f);
+                }
+
+                if (employeeA != null)
+                {
+                    PlayCharacterBluffBodyAnimation(employeeA.transform, true);
+                }
+
+                if (targetDocument != null && targetDocument.currentOwner == DocumentOwner.PlayerA)
+                {
+                    targetDocument.PlayBluffAnimation(employeeB != null ? employeeB.transform : null);
+                }
+            }
+        }
+
+        // ===== 1. 按下 Space 鍵 =====
         if (Input.GetKeyDown(KeyCode.Space))
         {
             if (GameManager.Instance != null && GameManager.Instance.isTimePaused)
@@ -263,35 +361,45 @@ public class StateTester : MonoBehaviour
 
             aHoldStartTime = Time.time;
             aDefensePressTime = Time.time;
-            isHoldingSpace = false;
-        }
 
-        if (Input.GetKey(KeyCode.Space))
-        {
-            if (isPlayerAHoldingDocument)
-            {
-                isHoldingSpace = false;
-                return;
-            }
-
-            float holdDuration = Time.time - aHoldStartTime;
-
-            if (!isHoldingSpace && holdDuration >= holdThreshold)
+            if (!isPlayerAHoldingDocument)
             {
                 isHoldingSpace = true;
                 ExecuteDefense(employeeA);
                 aNextRepeatTime = Time.time + repeatInterval;
             }
-            else if (isHoldingSpace && Time.time >= aNextRepeatTime)
+            else
             {
-                ExecuteDefense(employeeA);
-                aNextRepeatTime = Time.time + repeatInterval;
+                isHoldingSpace = false;
             }
         }
 
+        // ===== 2. 持續按住 Space 鍵 =====
+        if (Input.GetKey(KeyCode.Space))
+        {
+            isPlayerAHoldingDocument = (targetDocument != null && targetDocument.currentOwner == DocumentOwner.PlayerA);
+
+            if (!isPlayerAHoldingDocument)
+            {
+                if (!isHoldingSpace)
+                {
+                    isHoldingSpace = true;
+                    aDefensePressTime = Time.time;
+                    ExecuteDefense(employeeA);
+                    aNextRepeatTime = Time.time + repeatInterval;
+                }
+                else if (Time.time >= aNextRepeatTime)
+                {
+                    ExecuteDefense(employeeA);
+                    aNextRepeatTime = Time.time + repeatInterval;
+                }
+            }
+        }
+
+        // ===== 3. 松開 Space 鍵 =====
         if (Input.GetKeyUp(KeyCode.Space))
         {
-            if (!isHoldingSpace && isPlayerAHoldingDocument)
+            if (isPlayerAHoldingDocument && !isHoldingSpace)
             {
                 if (Time.time >= aNextAttackTime)
                 {
@@ -300,7 +408,9 @@ public class StateTester : MonoBehaviour
                     aNextAttackTime = Time.time + attackCooldown + penaltyCD;
                 }
             }
+
             isHoldingSpace = false;
+            GameEventManager.TriggerDefenseStateReported(0, "End");
         }
     }
 
@@ -308,52 +418,87 @@ public class StateTester : MonoBehaviour
     {
         bool isPlayerBHoldingDocument = (targetDocument != null && targetDocument.currentOwner == DocumentOwner.PlayerB);
 
+        // ===== Player B (乙方) Keypad Enter 假動作 =====
+        if (Input.GetKeyDown(KeyCode.KeypadEnter))
+        {
+            if (Time.time - lastBluffTimeB >= bluffCooldown)
+            {
+                lastBluffTimeB = Time.time;
+
+                GameEventManager.TriggerBluff(1);
+
+                if (expressionB != null)
+                {
+                    expressionB.TriggerExpression(ExpressionState.Aggressive, 0.8f);
+                }
+
+                if (employeeB != null)
+                {
+                    PlayCharacterBluffBodyAnimation(employeeB.transform, false);
+                }
+
+                if (targetDocument != null && targetDocument.currentOwner == DocumentOwner.PlayerB)
+                {
+                    targetDocument.PlayBluffAnimation(employeeA != null ? employeeA.transform : null);
+                }
+            }
+        }
+
         if (Input.GetKeyDown(KeyCode.Return))
         {
             bHoldStartTime = Time.time;
             bDefensePressTime = Time.time;
-            isHoldingB = false;
-        }
 
-        if (Input.GetKey(KeyCode.Return))
-        {
-            if (isPlayerBHoldingDocument)
-            {
-                isHoldingB = false;
-                return;
-            }
-
-            float holdDuration = Time.time - bHoldStartTime;
-
-            if (!isHoldingB && holdDuration >= holdThreshold)
+            if (!isPlayerBHoldingDocument)
             {
                 isHoldingB = true;
                 ExecuteDefense(employeeB);
                 bNextRepeatTime = Time.time + repeatInterval;
             }
-            else if (isHoldingB && Time.time >= bNextRepeatTime)
+            else
             {
-                ExecuteDefense(employeeB);
-                bNextRepeatTime = Time.time + repeatInterval;
+                isHoldingB = false;
+            }
+        }
+
+        if (Input.GetKey(KeyCode.Return))
+        {
+            isPlayerBHoldingDocument = (targetDocument != null && targetDocument.currentOwner == DocumentOwner.PlayerB);
+
+            if (!isPlayerBHoldingDocument)
+            {
+                if (!isHoldingB)
+                {
+                    isHoldingB = true;
+                    bDefensePressTime = Time.time;
+                    ExecuteDefense(employeeB);
+                    bNextRepeatTime = Time.time + repeatInterval;
+                }
+                else if (Time.time >= bNextRepeatTime)
+                {
+                    ExecuteDefense(employeeB);
+                    bNextRepeatTime = Time.time + repeatInterval;
+                }
             }
         }
 
         if (Input.GetKeyUp(KeyCode.Return))
         {
-            if (!isHoldingB && isPlayerBHoldingDocument)
+            if (isPlayerBHoldingDocument && !isHoldingB)
             {
                 if (Time.time >= bNextAttackTime)
                 {
-                    ExecutePassDocumentAttack(employeeB, employeeA, null);
+                    ExecutePassDocumentAttack(employeeB, employeeA, expressionA);
                     float penaltyCD = employeeB.currentHeat > highHeatThreshold ? 0.3f : 0f;
                     bNextAttackTime = Time.time + attackCooldown + penaltyCD;
                 }
             }
+
             isHoldingB = false;
+            GameEventManager.TriggerDefenseStateReported(1, "End");
         }
     }
 
-    // ==================== 【需求 1：大幅高 PVE 的 AI 防守率與靈敏度】 ====================
     private void HandleHighDefensiveAI()
     {
         if (Time.time < nextAiDecisionTime) return;
@@ -362,15 +507,13 @@ public class StateTester : MonoBehaviour
         bool playerHasDocument = (targetDocument != null && targetDocument.currentOwner == DocumentOwner.PlayerA);
         bool aiHasDocument = (targetDocument != null && targetDocument.currentOwner == DocumentOwner.PlayerB);
 
-        // 1. 當玩家持有文件時：高機率進入防守態，隨機點按/長按觸發 Parry 視窗
         if (playerHasDocument)
         {
             if (Random.value < aiDefenseProbability)
             {
                 isHoldingB = true;
-                bDefensePressTime = Time.time; // 更新按壓時間，爭取觸發 Parry
+                bDefensePressTime = Time.time;
                 
-                // 如果 AI Heat 過高，順便執行防守降溫
                 if (employeeB.currentHeat > 30f)
                 {
                     ExecuteDefense(employeeB);
@@ -379,20 +522,124 @@ public class StateTester : MonoBehaviour
             else
             {
                 isHoldingB = false;
+                GameEventManager.TriggerDefenseStateReported(1, "End");
             }
             return;
         }
 
-        // 2. 當 AI 持有文件時：迅速尋找時機甩鍋
-        if (aiHasDocument && Time.time >= bNextAttackTime)
+        // ===== AI 持球時的行動邏輯 =====
+        if (aiHasDocument)
         {
-            isHoldingB = false;
-            if (Random.value < 0.85f) // 85% 機率果斷甩鍋
+            // ✅ AI 發動假動作機制：一定機率發動假動作誘騙玩家
+            if (Time.time - lastBluffTimeB >= bluffCooldown && Random.value < aiBluffProbability)
             {
-                ExecutePassDocumentAttack(employeeB, employeeA, null);
-                float penaltyCD = employeeB.currentHeat > highHeatThreshold ? 0.3f : 0f;
-                bNextAttackTime = Time.time + attackCooldown + penaltyCD;
+                lastBluffTimeB = Time.time;
+
+                GameEventManager.TriggerBluff(1);
+
+                if (expressionB != null)
+                {
+                    expressionB.TriggerExpression(ExpressionState.Aggressive, 0.8f);
+                }
+
+                if (employeeB != null)
+                {
+                    PlayCharacterBluffBodyAnimation(employeeB.transform, false);
+                }
+
+                if (targetDocument != null)
+                {
+                    targetDocument.PlayBluffAnimation(employeeA != null ? employeeA.transform : null);
+                }
+
+                Debug.Log("<color=yellow>[AI 發動假動作]</color> AI 做了甩鍋假動作誘騙玩家防守！");
+                return;
+            }
+
+            // AI 真實甩鍋攻擊
+            if (Time.time >= bNextAttackTime)
+            {
+                isHoldingB = false;
+                if (Random.value < 0.85f)
+                {
+                    ExecutePassDocumentAttack(employeeB, employeeA, expressionA);
+                    float penaltyCD = employeeB.currentHeat > highHeatThreshold ? 0.3f : 0f;
+                    bNextAttackTime = Time.time + attackCooldown + penaltyCD;
+                }
             }
         }
+    }
+
+    // ==================== 純角色座標相對向量前傾 ====================
+    private void PlayCharacterBluffBodyAnimation(Transform characterTransform, bool isPlayerA)
+    {
+        if (characterTransform == null) return;
+
+        Vector3 targetOpponentPos = Vector3.zero;
+
+        if (isPlayerA && employeeB != null)
+        {
+            targetOpponentPos = employeeB.transform.position;
+        }
+        else if (!isPlayerA && employeeA != null)
+        {
+            targetOpponentPos = employeeA.transform.position;
+        }
+
+        if (targetOpponentPos != Vector3.zero)
+        {
+            StartCoroutine(AnimateCharacterBodyShakeTowards(characterTransform, targetOpponentPos));
+        }
+    }
+
+    private IEnumerator AnimateCharacterBodyShakeTowards(Transform charTransform, Vector3 opponentWorldPos)
+    {
+        Vector3 originalPos = charTransform.position;
+        Quaternion originalRot = charTransform.rotation;
+        Vector3 originalScale = charTransform.localScale;
+
+        // 1. 計算方向向量 (Pos_Opponent - Pos_Self)
+        Vector3 directionToOpponent = (opponentWorldPos - originalPos);
+        directionToOpponent.y = 0f; // 忽略高低差
+        
+        if (directionToOpponent.sqrMagnitude > 0.001f)
+        {
+            directionToOpponent.Normalize();
+        }
+        else
+        {
+            directionToOpponent = charTransform.forward;
+        }
+
+        // 2. 幅度設定
+        float moveDistance = bluffBodyMoveDistance > 0f ? bluffBodyMoveDistance : 0.6f; 
+        Vector3 targetPos = originalPos + directionToOpponent * moveDistance;
+
+        // 3. 俯身旋轉設定
+        Vector3 pitchAxis = Vector3.Cross(Vector3.up, directionToOpponent); 
+        Quaternion targetRot = Quaternion.AngleAxis(15f, pitchAxis) * originalRot; 
+
+        // 4. 視覺縮放擠壓
+        Vector3 targetScale = new Vector3(originalScale.x, originalScale.y * 0.92f, originalScale.z * 1.08f);
+
+        float duration = 0.18f; 
+        float elapsed = 0f;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float pingPong = Mathf.Sin((elapsed / duration) * Mathf.PI);
+
+            charTransform.position = Vector3.Lerp(originalPos, targetPos, pingPong);
+            charTransform.rotation = Quaternion.Slerp(originalRot, targetRot, pingPong);
+            charTransform.localScale = Vector3.Lerp(originalScale, targetScale, pingPong);
+
+            yield return null;
+        }
+
+        // 復原初始狀態
+        charTransform.position = originalPos;
+        charTransform.rotation = originalRot;
+        charTransform.localScale = originalScale;
     }
 }

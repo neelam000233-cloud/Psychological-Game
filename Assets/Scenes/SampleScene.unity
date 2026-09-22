@@ -344,6 +344,7 @@ GameObject:
   - component: {fileID: 184963850}
   - component: {fileID: 184963849}
   - component: {fileID: 184963848}
+  - component: {fileID: 184963851}
   m_Layer: 0
   m_Name: Employee_A
   m_TagString: Untagged
@@ -474,6 +475,29 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 184963844}
   m_Mesh: {fileID: 10208, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &184963851
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 184963844}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 41d32c683b577ad43a4e58d2d4828cd1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ExpressionController
+  stateSO: {fileID: 0}
+  currentExpression: 0
+  defaultTexture: {fileID: 0}
+  defendingTexture: {fileID: 0}
+  exhaustedTexture: {fileID: 0}
+  nervousTexture: {fileID: 0}
+  aggressiveTexture: {fileID: 0}
+  calmFakeTexture: {fileID: 0}
+  characterRenderer: {fileID: 0}
+  characterAnimator: {fileID: 0}
+  characterBody: {fileID: 0}
 --- !u!1 &330585543
 GameObject:
   m_ObjectHideFlags: 0
@@ -1429,7 +1453,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &711428674
 Transform:
   m_ObjectHideFlags: 0
@@ -1572,14 +1596,18 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::StateTester
   employeeA: {fileID: 184963845}
   employeeB: {fileID: 2071788006}
+  expressionA: {fileID: 0}
   expressionB: {fileID: 2071788008}
   targetDocument: {fileID: 1586424557}
   holdThreshold: 0.3
   repeatInterval: 2
   attackCooldown: 0.5
   parryWindowDuration: 0.4
+  bluffCooldown: 1.2
+  bluffBodyMoveDistance: 0.8
   aiDecisionInterval: 1.5
   aiDefenseProbability: 0.85
+  aiBluffProbability: 0.25
   defenseSelfStats: {x: -2, y: -5}
   attackSelfStats: {x: -2, y: 8}
   attackTargetStats: {x: -20, y: 5}
@@ -3634,7 +3662,7 @@ MonoBehaviour:
   heatPerSecondWhileHolding: 2.5
   playerADeskPoint: {fileID: 1618729575}
   playerBDeskPoint: {fileID: 1833764812}
-  passAnimationSpeed: 0.35
+  passAnimationSpeed: 5
   passProtectionDuration: 0.35
 --- !u!1 &1618729574
 GameObject:
@@ -3656,7 +3684,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &1618729575
 Transform:
   m_ObjectHideFlags: 0
@@ -3666,8 +3694,8 @@ Transform:
   m_GameObject: {fileID: 1618729574}
   serializedVersion: 2
   m_LocalRotation: {x: -0.0059340294, y: -0, z: -0, w: 0.9999824}
-  m_LocalPosition: {x: 0.38356167, y: 2.25, z: -0.13793103}
-  m_LocalScale: {x: 0.68493146, y: 1.7851845, z: 0.5747675}
+  m_LocalPosition: {x: 0.675, y: 2.288, z: 0.023}
+  m_LocalScale: {x: 0.68493146, y: 0.5, z: 0.5747675}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 372687936}
@@ -4246,8 +4274,8 @@ Transform:
   m_GameObject: {fileID: 1833764811}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0.31506845, y: 1.3392859, z: -0.15977012}
-  m_LocalScale: {x: 0.68493146, y: 1.7857144, z: 0.57471263}
+  m_LocalPosition: {x: 0.39, y: 1.45, z: -0.66}
+  m_LocalScale: {x: 0.35, y: 0.32, z: 0.27}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 711428674}
@@ -4817,7 +4845,7 @@ Transform:
   m_GameObject: {fileID: 2071788005}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 1.3, y: 1, z: 0}
+  m_LocalPosition: {x: 2.48, y: 0.99, z: -0.29}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -4838,7 +4866,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ExpressionController
   stateSO: {fileID: 11400000, guid: 76a8521915b4dda41b0fb0b818447ada, type: 2}
   currentExpression: 0
+  defaultTexture: {fileID: 0}
+  defendingTexture: {fileID: 0}
+  exhaustedTexture: {fileID: 0}
+  nervousTexture: {fileID: 0}
+  aggressiveTexture: {fileID: 0}
+  calmFakeTexture: {fileID: 0}
   characterRenderer: {fileID: 0}
+  characterAnimator: {fileID: 0}
+  characterBody: {fileID: 0}
 --- !u!136 &2071788009
 CapsuleCollider:
   m_ObjectHideFlags: 0
